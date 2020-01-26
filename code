@@ -1,0 +1,120 @@
+--knjižice--
+#include <ESP8266WiFi.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Adafruit_Sensor.h>
+#include <DHT.h>
+#include "FirebaseArduino.h"
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels –definicija širinine LED zaslona--
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels –definicija višine LED zaslona
+#define FIREBASE_HOST "temphum-d810f.firebaseio.com" –definicija povezave za firebase--
+
+String apiKey = "VPPZHU198CX256MY"; --apiKey za ThingSpeak--
+
+const char* ssid     = "Boobies ( . ) ( . )"; --ssid--
+const char* password = "3Racunal6Nicar0"; --geslo za Wi-Fi--
+const char* server = "api.thingspeak.com"; --server--
+WiFiClient client; --client ki se lahko poveže na specifičen naslov--
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1); --priprava zaslona--
+
+#define DHTPIN 14     --digitalni DHT pin kjer je povezan senzor--
+
+#define DHTTYPE    DHT22     // DHT 22 (AM2302) –definicija DHT22 senzorja--
+
+DHT dht(DHTPIN, DHTTYPE);
+
+void setup() { --začetek funkcije--
+  Serial.begin(115200); --serial »baudrate«--
+
+  delay(10); --zamik--
+  Serial.println('\n'); --izpis--
+  Serial.println("Connecting to "); --izpis--
+  Serial.println(ssid); --izpis--
+  WiFi.begin(ssid, password);  --povezava na Wi-Fi--
+
+  while (WiFi.status() != WL_CONNECTED) { --izpis povezovanja na Wi-Fi--
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected"); --izpis ko se uspešno poveže na Wi-Fi--
+
+  dht.begin(); --začetek DHT22--
+
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { --če se zaslon ne izvede--
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
+  delay(2000);
+  display.clearDisplay();
+  display.setTextColor(WHITE); --bel zaslon--
+  Firebase.begin(FIREBASE_HOST); --začetek firebase strežnika--
+}
+
+void loop() { --zanka--
+
+    float a = analogRead(A0); --spremenljivka za analogni senzor MQ-135--
+  if (isnan(a)) {
+    Serial.println("Failed to read from MQ-5 sensor!");--v primeru neuspešnega branja--
+    return;
+  }
+  if (client.connect(server, 80)) { --povezava na »broker« thingspeak--
+    String postStr = apiKey;
+    postStr += "&field1=";
+    postStr += String(a/1023*100);
+    postStr += "r\n";
+    client.print("POST /update HTTP/1.1\n");
+    client.print("Host: api.thingspeak.com\n");
+    client.print("Connection: close\n");
+    client.print("X-THINGSPEAKAPIKEY: " + apiKey + "\n");
+    client.print("Content-Type: application/x-www-form-urlencoded\n");
+    client.print("Content-Length: ");
+    client.print(postStr.length());
+    client.print("\n\n");
+    client.print(postStr); --pošiljanje na thingspeak--
+    Serial.print("Gas Level: ");
+    Serial.println(a/1023*100);
+    Serial.println("Data Send to Thingspeak"); --izpis--
+  }
+  delay(500);
+  client.stop();
+  Serial.println("Waiting...");
+  
+  delay(5000);
+
+  float t = dht.readTemperature(); --spremeljivki za vlago in temperaturo--
+  float h = dht.readHumidity();
+  if (isnan(h) || isnan(t)) {
+    Serial.println("Failed to read from DHT sensor!"); --v primeru napačnega branja--
+  }
+  display.clearDisplay(); --osvežitev zaslona--
+  
+  display.setTextSize(1); --prikaz temperature na zaslonu--
+  display.setCursor(0,0);
+  display.print("Temperature: ");
+  display.setTextSize(2);
+  display.setCursor(0,10);
+  display.print(t);
+  display.print(" ");
+  display.setTextSize(1);
+  display.cp437(true);
+  display.write(167);
+  display.setTextSize(2);
+  display.print("C");
+  
+  display.setTextSize(1); --prikaz vlage na zaslonu--
+  display.setCursor(0, 35);
+  display.print("Humidity: ");
+  display.setTextSize(2);
+  display.setCursor(0, 45);
+  display.print(h);
+  display.print(" %"); 
+  
+  display.display();
+  Firebase.setFloat ("Temp", t); --pošiljanje podatkov na firebase--
+  Firebase.setFloat ("Hum", h);
+  Firebase.setFloat ("Gas", a/1023*100);
+}
